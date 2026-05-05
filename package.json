@@ -1,0 +1,106 @@
+{
+  "name": "@xyncpay/plugin-elizaos",
+  "version": "0.1.0",
+  "description": "ElizaOS plugin for XyncPay. Cross-protocol payment translation for autonomous AI agents.",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
+  },
+  "keywords": [
+    "elizaos",
+    "elizaos-plugin",
+    "elizaos-plugins",
+    "plugin",
+    "xyncpay",
+    "payment",
+    "x402",
+    "mpp",
+    "ap2",
+    "usdc",
+    "base",
+    "ai-agent"
+  ],
+  "license": "MIT",
+  "author": "XyncPay LLC <dev@xyncpay.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XyncPay/plugin-xyncpay-elizaos.git"
+  },
+  "homepage": "https://www.xyncpay.com",
+  "bugs": {
+    "url": "https://github.com/XyncPay/plugin-xyncpay-elizaos/issues"
+  },
+  "peerDependencies": {
+    "@elizaos/core": "^1.7.0"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@elizaos/core": "^1.7.0",
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.6.0",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "agentConfig": {
+    "pluginType": "elizaos:plugin:1.0.0",
+    "pluginParameters": {
+      "XYNCPAY_API_URL": {
+        "type": "string",
+        "required": false,
+        "default": "https://www.xyncpay.com",
+        "description": "Base URL for the XyncPay API"
+      },
+      "WALLET_PRIVATE_KEY": {
+        "type": "string",
+        "required": true,
+        "description": "Agent wallet private key for signing requests and transactions. Stays local; never sent to XyncPay."
+      },
+      "XYNCPAY_PREFERRED_CHAIN": {
+        "type": "string",
+        "required": false,
+        "default": "base",
+        "description": "Default chain for settlement"
+      },
+      "XYNCPAY_AGENT_NAME": {
+        "type": "string",
+        "required": false,
+        "description": "Human-readable name for the agent. Defaults to character name if not set."
+      },
+      "BASE_RPC_URL": {
+        "type": "string",
+        "required": false,
+        "default": "https://mainnet.base.org",
+        "description": "Base mainnet RPC endpoint for broadcasting signed transactions"
+      }
+    }
+  }
+}
