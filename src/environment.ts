@@ -4,6 +4,25 @@
 import { z } from "zod";
 import type { IAgentRuntime } from "@elizaos/core";
 
+// USDC has 6 decimals on all supported chains. Users configure human-friendly
+// numeric strings ("100" for 100 USDC, "10.50" for 10.5 USDC); the API expects
+// smallest-unit strings ("100000000" for 100 USDC). This converts at config-load.
+const USDC_DECIMALS = 6;
+
+function usdcHumanToSmallestUnit(humanValue: string): string {
+  // Pre-validated by Zod regex to match /^\d+(\.\d+)?$/
+  const [intPart, fracPart = ""] = humanValue.split(".");
+  if (fracPart.length > USDC_DECIMALS) {
+    throw new Error(
+      `USDC amount "${humanValue}" has more than ${USDC_DECIMALS} decimal places of precision`,
+    );
+  }
+  const paddedFrac = fracPart.padEnd(USDC_DECIMALS, "0");
+  // Strip leading zeros from concatenated value, but preserve at least "0"
+  const combined = (intPart + paddedFrac).replace(/^0+/, "") || "0";
+  return combined;
+}
+
 export const xyncpayConfigSchema = z.object({
   apiUrl: z.string().url().default("https://www.xyncpay.com"),
   walletPrivateKey: z
@@ -15,18 +34,40 @@ export const xyncpayConfigSchema = z.object({
   spendingCap: z
     .string({
       required_error:
-        "XYNCPAY_SPENDING_CAP is required; set it to a numeric string (e.g. 100)",
+        "XYNCPAY_SPENDING_CAP is required; set it to a numeric string in USDC (e.g. 100 for 100 USDC)",
     })
-    .regex(/^\d+(\.\d+)?$/, "XYNCPAY_SPENDING_CAP must be a numeric string (e.g. 100)"),
+    .regex(/^\d+(\.\d+)?$/, "XYNCPAY_SPENDING_CAP must be a numeric string in USDC (e.g. 100 for 100 USDC)")
+    .transform((val, ctx) => {
+      try {
+        return usdcHumanToSmallestUnit(val);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : "Invalid USDC amount",
+        });
+        return z.NEVER;
+      }
+    }),
   perTransactionLimit: z
     .string({
       required_error:
-        "XYNCPAY_PER_TRANSACTION_LIMIT is required; set it to a numeric string (e.g. 10)",
+        "XYNCPAY_PER_TRANSACTION_LIMIT is required; set it to a numeric string in USDC (e.g. 10 for 10 USDC)",
     })
     .regex(
       /^\d+(\.\d+)?$/,
-      "XYNCPAY_PER_TRANSACTION_LIMIT must be a numeric string (e.g. 10)"
-    ),
+      "XYNCPAY_PER_TRANSACTION_LIMIT must be a numeric string in USDC (e.g. 10 for 10 USDC)"
+    )
+    .transform((val, ctx) => {
+      try {
+        return usdcHumanToSmallestUnit(val);
+      } catch (err) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: err instanceof Error ? err.message : "Invalid USDC amount",
+        });
+        return z.NEVER;
+      }
+    }),
   rateLimit: z.coerce
     .number({
       invalid_type_error: "XYNCPAY_RATE_LIMIT must be a positive integer (e.g. 60)",
