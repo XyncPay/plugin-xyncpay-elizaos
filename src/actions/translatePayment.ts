@@ -83,6 +83,63 @@ async function findActiveSession(
   return null;
 }
 
+// Extracts payment parameters from message.content directly when the caller
+// provides them as explicit fields (no LLM extraction needed). Used by non-LLM
+// runtimes such as OpenClaw, agent-to-agent calls, or test harnesses.
+function extractExplicitParams(
+  message: Memory,
+): z.infer<typeof TranslatePaymentSchema> | null {
+  const content = message.content as Record<string, unknown>;
+  // Require at least recipient, amount, currency to attempt explicit-params path.
+  // memo is optional and gracefully handled by the schema.
+  if (
+    typeof content.recipient !== "string" ||
+    typeof content.amount !== "string" ||
+    typeof content.currency !== "string"
+  ) {
+    return null;
+  }
+  const candidate = {
+    recipient: content.recipient,
+    amount: content.amount,
+    currency: content.currency,
+    memo: typeof content.memo === "string" ? content.memo : undefined,
+  };
+  const parsed = TranslatePaymentSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+// Extracts payment parameters via LLM. Returns null if useModel is unavailable
+// (e.g., OpenClaw runtime) or if the model output fails schema validation.
+async function extractViaLLM(
+  runtime: IAgentRuntime,
+  message: Memory,
+  state: State | undefined,
+): Promise<z.infer<typeof TranslatePaymentSchema> | null> {
+  if (typeof runtime.useModel !== "function") {
+    return null;
+  }
+  try {
+    const composedState = state ?? (await runtime.composeState(message));
+    const prompt = extractionTemplate.replace("{{recentMessages}}", composedState.text);
+    const raw = await runtime.useModel(ModelType.OBJECT_SMALL, {
+      prompt,
+      schema: paymentExtractionJsonSchema,
+      output: "object",
+    });
+    // Normalize null memo to undefined so z.string().optional() accepts it.
+    const rawNormalized = { ...raw, ...(raw.memo === null ? { memo: undefined } : {}) };
+    const parsed = TranslatePaymentSchema.safeParse(rawNormalized);
+    return parsed.success ? parsed.data : null;
+  } catch (err) {
+    elizaLogger.debug(
+      { error: err instanceof Error ? err.message : String(err) },
+      "LLM extraction failed; treating as unavailable",
+    );
+    return null;
+  }
+}
+
 export const translatePaymentAction: Action = {
   name: "XYNCPAY_TRANSLATE_PAYMENT",
   similes: [
@@ -127,48 +184,30 @@ export const translatePaymentAction: Action = {
         return { success: false, error: errMsg };
       }
 
-      // updateRecentMessageState does not exist in @elizaos/core 1.7.0.
-      // Use the passed-in state when available; compose fresh state otherwise.
-      const composedState = state ?? (await runtime.composeState(message));
-      const prompt = extractionTemplate.replace("{{recentMessages}}", composedState.text);
-
-      const raw = await runtime.useModel(ModelType.OBJECT_SMALL, {
-        prompt,
-        schema: paymentExtractionJsonSchema,
-        output: "object",
-      });
-
-      // Normalize null memo to undefined so z.string().optional() accepts it.
-      const rawNormalized = { ...raw, ...(raw.memo === null ? { memo: undefined } : {}) };
-      const parsed = TranslatePaymentSchema.safeParse(rawNormalized);
-
-      if (!parsed.success) {
+      // Try explicit parameters first (works in any runtime including OpenClaw),
+      // fall back to LLM extraction (requires runtime.useModel; ElizaOS proper).
+      let extracted = extractExplicitParams(message);
+      let extractionMode = "explicit";
+      if (!extracted) {
+        extracted = await extractViaLLM(runtime, message, state);
+        extractionMode = "llm";
+      }
+      if (!extracted) {
         const errMsg =
-          "Could not extract payment details from the message. " +
-          "Please specify a recipient, amount, and currency.";
+          "Could not extract payment details. Provide explicit { recipient, amount, currency } " +
+          "in message.content, or use a runtime with an LLM configured.";
         if (callback) {
           await callback({ text: errMsg });
         }
         return { success: false, error: errMsg };
       }
+      elizaLogger.debug(
+        { mode: extractionMode, recipient: extracted.recipient, amount: extracted.amount },
+        "XYNCPAY_TRANSLATE_PAYMENT: extraction succeeded",
+      );
 
-      const extracted = parsed.data;
-
-      if (!extracted.recipient) {
-        const errMsg = "Missing required field: recipient.";
-        if (callback) await callback({ text: errMsg });
-        return { success: false, error: errMsg };
-      }
-      if (!extracted.amount) {
-        const errMsg = "Missing required field: amount.";
-        if (callback) await callback({ text: errMsg });
-        return { success: false, error: errMsg };
-      }
-      if (!extracted.currency) {
-        const errMsg = "Missing required field: currency.";
-        if (callback) await callback({ text: errMsg });
-        return { success: false, error: errMsg };
-      }
+      // Schema validation in extractExplicitParams/extractViaLLM guarantees these
+      // fields are present and well-formed; no further field-presence checks needed.
 
       if (!session.allowedCurrencies.includes(extracted.currency)) {
         const errMsg =
@@ -180,10 +219,7 @@ export const translatePaymentAction: Action = {
         return { success: false, error: errMsg };
       }
 
-      elizaLogger.debug(
-        { recipient: extracted.recipient, amount: extracted.amount, currency: extracted.currency },
-        "XYNCPAY_TRANSLATE_PAYMENT: extracted payment fields"
-      );
+      // Mode-specific debug log already emitted above by the extraction path.
 
       const response = await client.translatePayment({
         sourceProtocol: "x402",
