@@ -3,6 +3,7 @@
 // Throws typed errors on non-2xx responses.
 
 import { Wallet } from "ethers";
+import { randomUUID } from "node:crypto";
 import type {
   XyncPayConfig,
   RegisterAgentChallengeRequest,
@@ -82,7 +83,8 @@ export class XyncPayClient {
   private async signedFetch<TResponse>(
     path: string,
     method: string,
-    body: unknown
+    body: unknown,
+    extraHeaders: Record<string, string> = {}
   ): Promise<TResponse> {
     const url = new URL(path, this.apiUrl).toString();
     const rawBody = JSON.stringify(body);
@@ -98,6 +100,7 @@ export class XyncPayClient {
           "Content-Type": "application/json",
           "X-Wallet-Address": this.walletAddress,
           "X-Wallet-Signature": signature,
+          ...extraHeaders,
         },
         body: rawBody,
         signal: controller.signal,
@@ -186,11 +189,15 @@ export class XyncPayClient {
     return this.signedFetch<CreateSessionResponse>("/api/v1/sessions/create", "POST", params);
   }
 
-  async translatePayment(params: TranslatePaymentRequest): Promise<TranslatePaymentResponse> {
+  async translatePayment(
+    params: TranslatePaymentRequest,
+    idempotencyKey: string = randomUUID()
+  ): Promise<TranslatePaymentResponse> {
     return this.signedFetch<TranslatePaymentResponse>(
       "/api/v1/payments/translate",
       "POST",
-      params
+      params,
+      { "Idempotency-Key": idempotencyKey }
     );
   }
 
@@ -203,12 +210,14 @@ export class XyncPayClient {
 
   async confirmPayment(
     paymentId: string,
-    params: ConfirmPaymentRequest
+    params: ConfirmPaymentRequest,
+    idempotencyKey: string = randomUUID()
   ): Promise<ConfirmPaymentResponse> {
     return this.signedFetch<ConfirmPaymentResponse>(
       `/api/v1/payments/${encodeURIComponent(paymentId)}/confirm`,
       "POST",
-      params
+      params,
+      { "Idempotency-Key": idempotencyKey }
     );
   }
 }
