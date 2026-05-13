@@ -18,7 +18,7 @@ import type {
 import { elizaLogger } from "@elizaos/core";
 import { Wallet, JsonRpcProvider } from "ethers";
 import type { TransactionRequest } from "ethers";
-import { XyncPayClient } from "../services/xyncpayClient";
+import { XyncPayService } from "../services/xyncpayService";
 import { getConfig } from "../environment";
 import type { StoredPayment } from "../types";
 
@@ -63,8 +63,9 @@ export const confirmPaymentAction: Action = {
     "Sign the unsigned transaction from XYNCPAY_TRANSLATE_PAYMENT, broadcast it on-chain, wait for inclusion, and report the transaction hash to XyncPay to finalize the payment record.",
 
   validate: async (runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
+    const service = runtime.getService<XyncPayService>("xyncpay");
+    if (!service) return false;
     try {
-      getConfig(runtime);
       const payment = await findPendingPayment(runtime, message.roomId);
       return payment !== null;
     } catch {
@@ -81,8 +82,14 @@ export const confirmPaymentAction: Action = {
     _responses?: Memory[]
   ): Promise<ActionResult> => {
     try {
+      const service = runtime.getService<XyncPayService>("xyncpay");
+      if (!service) {
+        const errMsg = "XyncPayService not available. Plugin initialization may have failed.";
+        if (callback) await callback({ text: errMsg });
+        return { success: false, error: errMsg };
+      }
+      const client = service.client;
       const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
 
       const payment = await findPendingPayment(runtime, message.roomId);
       if (!payment) {

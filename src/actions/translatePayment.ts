@@ -14,7 +14,7 @@ import type {
 } from "@elizaos/core";
 import { ModelType, elizaLogger } from "@elizaos/core";
 import { z } from "zod";
-import { XyncPayClient } from "../services/xyncpayClient";
+import { XyncPayService } from "../services/xyncpayService";
 import { getConfig } from "../environment";
 import type { CreateSessionResponse, SupportedCurrency } from "../types";
 
@@ -95,14 +95,8 @@ export const translatePaymentAction: Action = {
   description:
     "Extract recipient, amount, currency, and optional memo from the user message, translate them into a chain-ready unsigned transaction via XyncPay, and return the paymentId for downstream confirmation.",
 
-  validate: async (runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
-    try {
-      getConfig(runtime);
-      const session = await findActiveSession(runtime, message.roomId);
-      return session !== null;
-    } catch {
-      return false;
-    }
+  validate: async (runtime: IAgentRuntime, _message: Memory, _state?: State): Promise<boolean> => {
+    return runtime.getService<XyncPayService>("xyncpay") !== null;
   },
 
   handler: async (
@@ -114,8 +108,14 @@ export const translatePaymentAction: Action = {
     _responses?: Memory[]
   ): Promise<ActionResult> => {
     try {
+      const service = runtime.getService<XyncPayService>("xyncpay");
+      if (!service) {
+        const errMsg = "XyncPayService not available. Plugin initialization may have failed.";
+        if (callback) await callback({ text: errMsg });
+        return { success: false, error: errMsg };
+      }
+      const client = service.client;
       const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
 
       const session = await findActiveSession(runtime, message.roomId);
       if (!session) {

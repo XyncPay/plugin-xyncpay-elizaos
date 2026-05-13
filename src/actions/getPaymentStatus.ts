@@ -15,8 +15,7 @@ import type {
 } from "@elizaos/core";
 import { ModelType, elizaLogger } from "@elizaos/core";
 import { z } from "zod";
-import { XyncPayClient } from "../services/xyncpayClient";
-import { getConfig } from "../environment";
+import { XyncPayService } from "../services/xyncpayService";
 import type { StoredPayment } from "../types";
 
 // Detects a paymentId-like token in user message text. The XyncPay paymentId format
@@ -85,8 +84,9 @@ export const getPaymentStatusAction: Action = {
     "Query the status of a XyncPay payment by paymentId extracted from the user message, or fall back to the most recent payment in Memory if no paymentId is mentioned.",
 
   validate: async (runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
+    const service = runtime.getService<XyncPayService>("xyncpay");
+    if (!service) return false;
     try {
-      getConfig(runtime);
       if (messageMentionsPaymentId(message)) return true;
       const payment = await findMostRecentPayment(runtime, message.roomId);
       return payment !== null;
@@ -104,8 +104,13 @@ export const getPaymentStatusAction: Action = {
     _responses?: Memory[]
   ): Promise<ActionResult> => {
     try {
-      const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
+      const service = runtime.getService<XyncPayService>("xyncpay");
+      if (!service) {
+        const errMsg = "XyncPayService not available. Plugin initialization may have failed.";
+        if (callback) await callback({ text: errMsg });
+        return { success: false, error: errMsg };
+      }
+      const client = service.client;
 
       // updateRecentMessageState does not exist in @elizaos/core 1.7.0.
       // Use the passed-in state when available; compose fresh state otherwise.

@@ -14,7 +14,8 @@ import type {
   UUID,
 } from "@elizaos/core";
 import { Wallet } from "ethers";
-import { XyncPayClient, XyncPayApiError } from "../services/xyncpayClient";
+import { XyncPayApiError } from "../services/xyncpayClient";
+import { XyncPayService } from "../services/xyncpayService";
 import { getConfig } from "../environment";
 import type { StoredAgentRegistration, XyncId } from "../types";
 
@@ -75,12 +76,8 @@ export const registerAgentAction: Action = {
     "Register the agent with XyncPay using its wallet address. Performs a two-step challenge-response flow that proves wallet ownership without exposing the private key. Idempotent: safe to call multiple times; subsequent calls return the existing registration.",
 
   validate: async (runtime: IAgentRuntime, _message: Memory, _state?: State): Promise<boolean> => {
-    try {
-      getConfig(runtime);
-      return true;
-    } catch {
-      return false;
-    }
+    const service = runtime.getService<XyncPayService>("xyncpay");
+    return service !== null;
   },
 
   handler: async (
@@ -92,8 +89,15 @@ export const registerAgentAction: Action = {
     _responses?: Memory[]
   ): Promise<ActionResult> => {
     try {
+      const service = runtime.getService<XyncPayService>("xyncpay");
+      if (!service) {
+        return {
+          success: false,
+          error: "XyncPayService not available. Plugin initialization may have failed.",
+        };
+      }
+      const client = service.client;
       const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
 
       // Return early if already registered locally
       const existing = await findStoredRegistration(

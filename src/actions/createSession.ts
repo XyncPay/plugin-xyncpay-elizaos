@@ -13,7 +13,7 @@ import type {
   ActionResult,
   UUID,
 } from "@elizaos/core";
-import { XyncPayClient } from "../services/xyncpayClient";
+import { XyncPayService } from "../services/xyncpayService";
 import { getConfig } from "../environment";
 import type { StoredAgentRegistration, XyncId } from "../types";
 
@@ -59,10 +59,14 @@ export const createSessionAction: Action = {
     "Open a spending session for the registered XyncPay agent with configurable limits on per-transaction amount, total spend cap, and session duration.",
 
   validate: async (runtime: IAgentRuntime, message: Memory, _state?: State): Promise<boolean> => {
+    const service = runtime.getService<XyncPayService>("xyncpay");
+    if (!service) return false;
     try {
-      const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
-      const xyncId = await findStoredXyncId(runtime, message.roomId, client.walletAddress);
+      const xyncId = await findStoredXyncId(
+        runtime,
+        message.roomId,
+        service.client.walletAddress,
+      );
       return xyncId !== null;
     } catch {
       return false;
@@ -78,8 +82,14 @@ export const createSessionAction: Action = {
     _responses?: Memory[]
   ): Promise<ActionResult> => {
     try {
+      const service = runtime.getService<XyncPayService>("xyncpay");
+      if (!service) {
+        const errMsg = "XyncPayService not available. Plugin initialization may have failed.";
+        if (callback) await callback({ text: errMsg });
+        return { success: false, error: errMsg };
+      }
+      const client = service.client;
       const config = getConfig(runtime);
-      const client = new XyncPayClient(config);
 
       const xyncId = await findStoredXyncId(runtime, message.roomId, client.walletAddress);
       if (!xyncId) {
