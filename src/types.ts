@@ -96,6 +96,7 @@ export interface CreateSessionResponse {
     agentId: XyncId;
     spendingCap: string;
     perTransactionLimit: string;
+    rateLimit: number;
     totalSpent: string;
     transactionCount: number;
     allowedChains: string[];
@@ -127,15 +128,19 @@ export interface UnsignedTransaction {
   data: string;
   value: string;
   gasLimit: string;
+  maxFeePerGas: string;
+  maxPriorityFeePerGas: string;
 }
 
 export interface PaymentRequestDetails {
+  id: PaymentId;
   feeAmount: string;
   netAmount: string;
   sourceProtocol: SourceProtocol;
   targetProtocol: TargetProtocol;
   currency: SupportedCurrency;
   amount: string;
+  chain: SupportedChain;
 }
 
 export interface TranslatePaymentResponse {
@@ -152,6 +157,8 @@ export interface TranslatePaymentResponse {
 // ---------------------------------------------------------------------------
 
 export type PaymentStatus =
+  | "ready"
+  | "pending"
   | "pending_signature"
   | "submitted"
   | "confirmed"
@@ -159,6 +166,8 @@ export type PaymentStatus =
   | "expired";
 
 export interface SettlementInfo {
+  id: SettlementId;
+  chain: SupportedChain;
   status: PaymentStatus;
   txHash?: string;
   blockNumber?: number;
@@ -169,8 +178,20 @@ export interface SettlementInfo {
 export interface GetPaymentStatusResponse {
   data: {
     id: PaymentId;
+    sourceProtocol: SourceProtocol;
+    targetProtocol: TargetProtocol;
+    payerXyncId: XyncId;
+    payeeAddress: string;
+    amount: string;
+    feeAmount: string;
+    netAmount: string;
+    currency: SupportedCurrency;
     sourceChain: SupportedChain;
     targetChain: SupportedChain;
+    status: PaymentStatus;
+    createdAt: number;
+    expiresAt: number;
+    translatedAt?: number;
     settlement: SettlementInfo;
   };
 }
@@ -212,7 +233,12 @@ export type XyncPayErrorCode =
   | "UNSUPPORTED_PROTOCOL"
   | "CHAIN_MISMATCH"
   | "NOT_FOUND"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "IDEMPOTENCY_KEY_REQUIRED"
+  | "IDEMPOTENCY_CONFLICT"
+  | "IDEMPOTENCY_STORE_UNAVAILABLE"
+  | "UNAUTHORIZED"
+  | "UNAUTHENTICATED";
 
 export interface XyncPayErrorResponse {
   error: {
