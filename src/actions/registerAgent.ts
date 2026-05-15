@@ -69,6 +69,25 @@ async function persistRegistration(
   );
 }
 
+// Extracts xyncId from the parsed 409 AGENT_EXISTS response body when the
+// API includes it (production API commit b94028a and later). Returns null
+// if the body shape is not what we expect, so the caller can fall back to
+// a local memory lookup.
+function extractXyncIdFromErrorBody(responseBody: unknown): XyncId | null {
+  if (typeof responseBody !== "object" || responseBody === null) {
+    return null;
+  }
+  const body = responseBody as Record<string, unknown>;
+  if (typeof body.xyncId !== "string") {
+    return null;
+  }
+  // Sanity check the format; the API canonical prefix is "xync_".
+  if (!body.xyncId.startsWith("xync_")) {
+    return null;
+  }
+  return body.xyncId as XyncId;
+}
+
 export const registerAgentAction: Action = {
   name: "XYNCPAY_REGISTER_AGENT",
   similes: ["REGISTER_WITH_XYNCPAY", "SETUP_XYNCPAY_AGENT", "INITIALIZE_XYNCPAY"],
@@ -142,23 +161,44 @@ export const registerAgentAction: Action = {
         xyncId = completeResp.data.xyncId;
       } catch (stepErr) {
         if (stepErr instanceof XyncPayApiError && stepErr.code === "AGENT_EXISTS") {
-          const recovered = await findStoredRegistration(
+          // Preferred path: API includes the existing xyncId in the 409 response
+          // body so the plugin can recover the canonical identifier without
+          // requiring local Memory state. Persist it for future actions.
+          const xyncIdFromBody = extractXyncIdFromErrorBody(stepErr.responseBody);
+          if (xyncIdFromBody) {
+            const recovered: StoredAgentRegistration = {
+              xyncId: xyncIdFromBody,
+              walletAddress: client.walletAddress,
+              preferredChain: config.preferredChain,
+              registeredAt: Date.now(),
+            };
+            await persistRegistration(runtime, message.roomId, recovered);
+            return {
+              success: true,
+              text: `Already registered. xyncId: ${xyncIdFromBody}`,
+              data: { ...recovered } as Record<string, unknown>,
+            };
+          }
+
+          // Fallback: older API or unexpected body shape. Check local Memory.
+          const fromMemory = await findStoredRegistration(
             runtime,
             message.roomId,
             client.walletAddress
           );
-          if (recovered) {
+          if (fromMemory) {
             return {
               success: true,
-              text: `Already registered. xyncId: ${recovered.xyncId}`,
-              data: { ...recovered } as Record<string, unknown>,
+              text: `Already registered. xyncId: ${fromMemory.xyncId}`,
+              data: { ...fromMemory } as Record<string, unknown>,
             };
           }
           return {
             success: false,
             error:
-              "Wallet is registered with XyncPay but local Memory has no xyncId. " +
-              "Clear local state or contact support to recover the xyncId.",
+              "Wallet is registered with XyncPay but the response body did not include " +
+              "xyncId and local Memory has no record. The plugin may be running against " +
+              "an older API version. Update the XyncPay API or clear local state.",
           };
         }
         throw stepErr;
