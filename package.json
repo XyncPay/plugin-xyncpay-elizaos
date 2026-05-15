@@ -100,6 +100,26 @@
         "required": false,
         "default": "https://mainnet.base.org",
         "description": "Base mainnet RPC endpoint for broadcasting signed transactions"
+      },
+      "XYNCPAY_SPENDING_CAP": {
+        "type": "string",
+        "required": true,
+        "description": "Total session spending cap in USDC. Example: '100' for 100 USDC. Converted to 6-decimal smallest unit internally."
+      },
+      "XYNCPAY_PER_TRANSACTION_LIMIT": {
+        "type": "string",
+        "required": true,
+        "description": "Maximum amount per single transaction in USDC. Example: '10' for 10 USDC."
+      },
+      "XYNCPAY_RATE_LIMIT": {
+        "type": "string",
+        "required": true,
+        "description": "Maximum number of transactions per minute. Must be a positive integer. Example: '30'."
+      },
+      "XYNCPAY_SESSION_EXPIRES_IN": {
+        "type": "string",
+        "required": true,
+        "description": "Session lifetime in seconds. Must be a positive integer. Example: '86400' for 24 hours."
       }
     }
   }
