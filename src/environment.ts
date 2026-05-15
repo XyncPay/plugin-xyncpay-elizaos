@@ -7,9 +7,9 @@ import type { IAgentRuntime } from "@elizaos/core";
 // USDC has 6 decimals on all supported chains. Users configure human-friendly
 // numeric strings ("100" for 100 USDC, "10.50" for 10.5 USDC); the API expects
 // smallest-unit strings ("100000000" for 100 USDC). This converts at config-load.
-const USDC_DECIMALS = 6;
+export const USDC_DECIMALS = 6;
 
-function usdcHumanToSmallestUnit(humanValue: string): string {
+export function usdcHumanToSmallestUnit(humanValue: string): string {
   // Pre-validated by Zod regex to match /^\d+(\.\d+)?$/
   const [intPart, fracPart = ""] = humanValue.split(".");
   if (fracPart.length > USDC_DECIMALS) {

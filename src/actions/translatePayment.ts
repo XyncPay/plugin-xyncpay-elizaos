@@ -15,7 +15,7 @@ import type {
 import { ModelType, elizaLogger } from "@elizaos/core";
 import { z } from "zod";
 import { XyncPayService } from "../services/xyncpayService";
-import { getConfig } from "../environment";
+import { getConfig, usdcHumanToSmallestUnit } from "../environment";
 import type { CreateSessionResponse, SupportedCurrency } from "../types";
 
 const SESSION_TABLE = "xyncpay_session";
@@ -221,11 +221,26 @@ export const translatePaymentAction: Action = {
 
       // Mode-specific debug log already emitted above by the extraction path.
 
+      // Convert the human-readable USDC amount (e.g. "0.01", "10", "10.50") to
+      // smallest-unit bigint string (e.g. "10000", "10000000", "10500000") which
+      // is what the XyncPay API expects per its schema validation.
+      let amountSmallestUnits: string;
+      try {
+        amountSmallestUnits = usdcHumanToSmallestUnit(extracted.amount);
+      } catch (convErr) {
+        const errMsg =
+          convErr instanceof Error
+            ? convErr.message
+            : `Invalid amount: ${extracted.amount}`;
+        if (callback) await callback({ text: errMsg });
+        return { success: false, error: errMsg };
+      }
+
       const response = await client.translatePayment({
         sourceProtocol: "x402",
         targetProtocol: "x402",
         payeeAddress: extracted.recipient,
-        amount: extracted.amount,
+        amount: amountSmallestUnits,
         currency: extracted.currency as SupportedCurrency,
         chain: config.preferredChain,
         sessionId: session.sessionId,

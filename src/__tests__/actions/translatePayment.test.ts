@@ -76,7 +76,7 @@ describe("XYNCPAY_TRANSLATE_PAYMENT : handler (explicit params)", () => {
     expect(translateSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         payeeAddress: "0xAbC1234567890AbC1234567890AbC1234567890Ab",
-        amount: "10",
+        amount: "10000000",
         currency: "USDC",
       }),
     );
