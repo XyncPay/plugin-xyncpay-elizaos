@@ -152,6 +152,45 @@ describe("XYNCPAY_GET_PAYMENT_STATUS : handler", () => {
     expect(result.error).toContain("XYNCPAY_TRANSLATE_PAYMENT");
   });
 
+  it("uses explicit paymentId from message.content when provided (no LLM call)", async () => {
+    const service = makeService({
+      getPaymentStatus: async (id: string) => {
+        expect(id).toBe(TEST_PAYMENT_ID);
+        return MOCK_STATUS_RESPONSE;
+      },
+    });
+    // Runtime without useModel to simulate OpenClaw or other LLM-less environments.
+    const runtime = makeRuntime(VALID_SETTINGS, {}, service);
+    // Defensively remove useModel to ensure the explicit path doesn't call the LLM.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (runtime as any).useModel = undefined;
+    const message = makeMessage({
+      text: "Check the payment status",
+      paymentId: TEST_PAYMENT_ID,
+    });
+    const result = await getPaymentStatusAction.handler(runtime, message) as ActionResult;
+    expect(result.success).toBe(true);
+    expect(result.text).toContain(TEST_PAYMENT_ID);
+  });
+
+  it("falls back to memory when useModel is unavailable and no explicit paymentId", async () => {
+    const service = makeService({
+      getPaymentStatus: async () => MOCK_STATUS_RESPONSE,
+    });
+    const sessionMemory = makePaymentMemory();
+    const runtime = makeRuntime(
+      VALID_SETTINGS,
+      { xyncpay_payment: [sessionMemory] },
+      service
+    );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (runtime as any).useModel = undefined;
+    const message = makeMessage({ text: "Status update please" });
+    const result = await getPaymentStatusAction.handler(runtime, message) as ActionResult;
+    expect(result.success).toBe(true);
+    expect(result.text).toContain(TEST_PAYMENT_ID);
+  });
+
   it("returns an error when service is not available", async () => {
     const runtime = makeRuntime(VALID_SETTINGS, {}, null);
     const result = await getPaymentStatusAction.handler(runtime, makeMessage()) as ActionResult;

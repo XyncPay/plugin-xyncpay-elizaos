@@ -18,12 +18,17 @@ import { z } from "zod";
 import { XyncPayService } from "../services/xyncpayService";
 import type { StoredPayment } from "../types";
 
-// Detects a paymentId-like token in user message text. The XyncPay paymentId format
-// is xyn_pay_ followed by alphanumeric characters; case-insensitive match. This is a
-// shape check, not a validation; the API rejects unknown IDs at query time.
+// Detects whether the message text mentions a paymentId. Production API
+// returns UUIDs (e.g. "c6966234-0533-49f0-991a-1cd2bb77a1af"), but legacy
+// xyn_pay_ format is also accepted for backward compatibility.
 function messageMentionsPaymentId(message: Memory): boolean {
   const text = message.content?.text;
   if (typeof text !== "string") return false;
+  // UUID v4 format: 8-4-4-4-12 hex digits
+  if (/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(text)) {
+    return true;
+  }
+  // Legacy xyn_pay_ format
   return /xyn_pay_[a-zA-Z0-9_-]+/i.test(text);
 }
 
@@ -112,36 +117,67 @@ export const getPaymentStatusAction: Action = {
       }
       const client = service.client;
 
-      // updateRecentMessageState does not exist in @elizaos/core 1.7.0.
-      // Use the passed-in state when available; compose fresh state otherwise.
-      const composedState = state ?? (await runtime.composeState(message));
-      const prompt = extractionTemplate.replace("{{recentMessages}}", composedState.text);
+      // Extract paymentId in priority order:
+      //   1. message.content.paymentId (explicit param, works in any runtime)
+      //   2. runtime.useModel LLM extraction (skipped if useModel unavailable)
+      //   3. most recent payment in Memory (final fallback)
+      let paymentIdToQuery: string | undefined;
+      let extractionMode: "explicit" | "llm" | "memory" | "none" = "none";
 
-      const raw = await runtime.useModel(ModelType.OBJECT_SMALL, {
-        prompt,
-        schema: paymentIdJsonSchema,
-        output: "object",
-      });
+      // Mode 1: explicit param from message content. The content.paymentId field
+      // can be any unknown type, so verify it's a non-empty string.
+      const explicitPaymentId = message.content?.paymentId;
+      if (typeof explicitPaymentId === "string" && explicitPaymentId.length > 0) {
+        paymentIdToQuery = explicitPaymentId;
+        extractionMode = "explicit";
+      }
 
-      // Normalize null paymentId to undefined so z.string().optional() accepts it.
-      const rawNormalized = {
-        ...raw,
-        ...(raw.paymentId === null ? { paymentId: undefined } : {}),
-      };
-      const parsed = PaymentIdExtractionSchema.safeParse(rawNormalized);
+      // Mode 2: LLM extraction. Only attempt if runtime.useModel is available
+      // (full ElizaOS runtimes); skip silently in OpenClaw and other runtimes
+      // that don't ship an LLM hook.
+      if (!paymentIdToQuery && typeof runtime.useModel === "function") {
+        try {
+          const composedState = state ?? (await runtime.composeState(message));
+          const prompt = extractionTemplate.replace("{{recentMessages}}", composedState.text);
 
-      const extractedPaymentId = parsed.success ? parsed.data.paymentId : undefined;
-      let paymentIdToQuery: string | undefined = extractedPaymentId;
+          const raw = await runtime.useModel(ModelType.OBJECT_SMALL, {
+            prompt,
+            schema: paymentIdJsonSchema,
+            output: "object",
+          });
 
+          // Normalize null paymentId to undefined so z.string().optional() accepts it.
+          const rawNormalized = {
+            ...raw,
+            ...(raw.paymentId === null ? { paymentId: undefined } : {}),
+          };
+          const parsed = PaymentIdExtractionSchema.safeParse(rawNormalized);
+          if (parsed.success && parsed.data.paymentId) {
+            paymentIdToQuery = parsed.data.paymentId;
+            extractionMode = "llm";
+          }
+        } catch (llmErr) {
+          // Silently fall through to memory lookup. LLM extraction is best-effort.
+          elizaLogger.debug(
+            { error: llmErr instanceof Error ? llmErr.message : String(llmErr) },
+            "XYNCPAY_GET_PAYMENT_STATUS: LLM extraction failed, falling back to memory"
+          );
+        }
+      }
+
+      // Mode 3: most recent payment in Memory.
       if (!paymentIdToQuery) {
         const recent = await findMostRecentPayment(runtime, message.roomId);
-        paymentIdToQuery = recent?.paymentId;
+        if (recent?.paymentId) {
+          paymentIdToQuery = recent.paymentId;
+          extractionMode = "memory";
+        }
       }
 
       if (!paymentIdToQuery) {
         const errMsg =
-          "No paymentId found in your message and no recent payment in Memory. " +
-          "Run XYNCPAY_TRANSLATE_PAYMENT first or include a paymentId in your message.";
+          "No paymentId found. Pass it as message.content.paymentId, include it in " +
+          "message text, or run XYNCPAY_TRANSLATE_PAYMENT first.";
         if (callback) await callback({ text: errMsg });
         return { success: false, error: errMsg };
       }
@@ -149,7 +185,7 @@ export const getPaymentStatusAction: Action = {
       elizaLogger.debug(
         {
           paymentId: paymentIdToQuery,
-          source: extractedPaymentId ? "message" : "memory",
+          mode: extractionMode,
         },
         "XYNCPAY_GET_PAYMENT_STATUS: querying payment"
       );
