@@ -87,22 +87,31 @@ export class XyncPayClient {
     extraHeaders: Record<string, string> = {}
   ): Promise<TResponse> {
     const url = new URL(path, this.apiUrl).toString();
-    const rawBody = JSON.stringify(body);
+    // For GET requests with no body, sign an empty string. This matches the
+    // server-side verifyRequestSignature middleware which reads request.text()
+    // and gets "" for GETs. JSON.stringify(undefined) returns the JS undefined
+    // value (not a string), which would coerce to "undefined" on send and break
+    // signature verification, so handle undefined explicitly.
+    const hasBody = body !== undefined;
+    const rawBody = hasBody ? JSON.stringify(body) : "";
     const signature = await this.wallet.signMessage(rawBody);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
 
     try {
+      const headers: Record<string, string> = {
+        "X-Wallet-Address": this.walletAddress,
+        "X-Wallet-Signature": signature,
+        ...extraHeaders,
+      };
+      if (hasBody) {
+        headers["Content-Type"] = "application/json";
+      }
       const response = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Wallet-Address": this.walletAddress,
-          "X-Wallet-Signature": signature,
-          ...extraHeaders,
-        },
-        body: rawBody,
+        headers,
+        body: hasBody ? rawBody : undefined,
         signal: controller.signal,
       });
       return this.parseResponse<TResponse>(response);
@@ -202,9 +211,10 @@ export class XyncPayClient {
   }
 
   async getPaymentStatus(paymentId: string): Promise<GetPaymentStatusResponse> {
-    return this.unsignedFetch<GetPaymentStatusResponse>(
+    return this.signedFetch<GetPaymentStatusResponse>(
       `/api/v1/payments/${encodeURIComponent(paymentId)}`,
-      "GET"
+      "GET",
+      undefined
     );
   }
 
