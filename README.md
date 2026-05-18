@@ -1,4 +1,4 @@
-# @xyncpay/plugin-elizaos
+# @xyncpay-org/plugin-elizaos
 
 ElizaOS plugin for XyncPay. Cross-protocol payment translation for autonomous AI agents.
 
@@ -7,7 +7,7 @@ XyncPay bridges incompatible payment protocols (x402, MPP, AP2) into USDC settle
 ## Installation
 
 ```bash
-npm install @xyncpay/plugin-elizaos
+npm install @xyncpay-org/plugin-elizaos
 ```
 
 ## Quick Start
@@ -16,7 +16,7 @@ Add the plugin to your character configuration:
 
 ```typescript
 import type { Character } from "@elizaos/core";
-import { xyncpayPlugin } from "@xyncpay/plugin-elizaos";
+import { xyncpayPlugin } from "@xyncpay-org/plugin-elizaos";
 
 export const character: Character = {
   name: "PaymentAgent",

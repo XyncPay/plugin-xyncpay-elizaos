@@ -1,5 +1,5 @@
 {
-  "name": "@xyncpay/plugin-elizaos",
+  "name": "@xyncpay-org/plugin-elizaos",
   "version": "0.1.0",
   "description": "ElizaOS plugin for XyncPay. Cross-protocol payment translation for autonomous AI agents.",
   "main": "dist/index.js",
